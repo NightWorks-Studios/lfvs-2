@@ -7,6 +7,17 @@ export interface UpdaterFieldExtension {
   resourceHistories?: Record<string, FieldDef>
 }
 
+export interface UpdaterFieldRegistration {
+  owner: string
+  platform: string
+  kind: string
+  fields: UpdaterFieldExtension
+}
+
+export interface ActiveUpdaterFieldRegistration extends UpdaterFieldRegistration {
+  registeredAt: number
+}
+
 /** @deprecated Extension fields are owned by updater instances. */
 export type AdapterFieldExtension = UpdaterFieldExtension
 
@@ -60,14 +71,56 @@ export class ResourceModelService {
   private readonly extensions: Record<FieldOwner, Record<string, FieldDef>> = {
     authors: {}, resources: {}, resourceHistories: {},
   }
+  private readonly activeExtensions = new Map<string, ActiveUpdaterFieldRegistration>()
+  private registrationQueue = Promise.resolve()
 
   constructor(private readonly database: Database) {
     this.extendCoreModels()
   }
 
-  async extend(owner: string, fields: UpdaterFieldExtension) {
+  registerUpdaterFields(input: UpdaterFieldRegistration): Promise<() => void> {
+    const registration = {
+      owner: input.owner.trim(),
+      platform: input.platform.trim(),
+      kind: input.kind.trim(),
+      fields: cloneExtension(input.fields),
+    }
+    const task = this.registrationQueue.then(() => this.applyUpdaterFields(registration))
+    this.registrationQueue = task.then(() => undefined, () => undefined)
+    return task
+  }
+
+  listUpdaterFieldExtensions(filter: { platform?: string; kind?: string } = {}) {
+    return [...this.activeExtensions.values()]
+      .filter((item) => !filter.platform || item.platform === filter.platform)
+      .filter((item) => !filter.kind || item.kind === filter.kind)
+      .sort((a, b) => a.owner.localeCompare(b.owner) || a.platform.localeCompare(b.platform) || a.kind.localeCompare(b.kind))
+      .map(cloneRegistration)
+  }
+
+  resolveUpdaterFields(platform: string, kind: string): UpdaterFieldExtension {
+    const result: UpdaterFieldExtension = {}
+    for (const registration of this.listUpdaterFieldExtensions({ platform, kind })) {
+      for (const key of Object.keys(tableNames) as FieldOwner[]) {
+        const fields = registration.fields[key]
+        if (!fields) continue
+        Object.assign(result[key] ??= {}, cloneFields(fields))
+      }
+    }
+    return result
+  }
+
+  private async applyUpdaterFields(input: UpdaterFieldRegistration) {
+    if (!input.owner) throw new TypeError('field owner must not be empty')
+    if (!input.platform) throw new TypeError('field platform must not be empty')
+    if (!input.kind) throw new TypeError('field kind must not be empty')
+    const registrationKey = this.registrationKey(input)
+    if (this.activeExtensions.has(registrationKey)) {
+      throw new Error(`updater fields already registered for ${input.owner} (${input.platform}/${input.kind})`)
+    }
+
     const pendingIndexes: Array<{ table: string; indexes: string[][] }> = []
-    for (const [key, entries] of Object.entries(fields) as [FieldOwner, Record<string, FieldDef> | undefined][]) {
+    for (const [key, entries] of Object.entries(input.fields) as [FieldOwner, Record<string, FieldDef> | undefined][]) {
       if (!entries) continue
       if (!Object.hasOwn(tableNames, key)) throw new Error(`unsupported field owner: ${key}`)
       for (const [fieldName, definition] of Object.entries(entries)) {
@@ -75,22 +128,39 @@ export class ResourceModelService {
         if (fieldName in coreFields[key]) throw new Error(`extension field cannot override core field: ${key}.${fieldName}`)
         const previous = this.extensions[key][fieldName]
         if (previous && fieldSignature(previous) !== fieldSignature(definition)) {
-          throw new Error(`conflicting field definition for ${key}.${fieldName} (owner: ${owner})`)
+          throw new Error(`conflicting field definition for ${key}.${fieldName} (owner: ${input.owner})`)
         }
-        this.extensions[key][fieldName] ??= definition
       }
-      const indexes = Object.entries(entries)
+    }
+
+    let schemaChanged = false
+    for (const [key, entries] of Object.entries(input.fields) as [FieldOwner, Record<string, FieldDef> | undefined][]) {
+      if (!entries) continue
+      const newEntries = Object.fromEntries(
+        Object.entries(entries).filter(([fieldName]) => !(fieldName in this.extensions[key])),
+      ) as Record<string, FieldDef>
+      if (!Object.keys(newEntries).length) continue
+      const indexes = Object.entries(newEntries)
         .filter(([, definition]) => typeof definition === 'object' && !!definition.indexed)
         .map(([fieldName]) => [fieldName])
-      this.database.extend(tableNames[key] as any, entries as any)
+      this.database.extend(tableNames[key] as any, newEntries as any)
+      schemaChanged = true
       if (indexes.length) pendingIndexes.push({ table: tableNames[key], indexes })
     }
-    await this.database.prepared()
+    if (schemaChanged) await this.database.prepared()
     for (const { table, indexes } of pendingIndexes) {
       this.database.extend(table as any, {}, { indexes } as any)
     }
     if (pendingIndexes.length) await this.database.prepared()
-    void owner
+
+    for (const [key, entries] of Object.entries(input.fields) as [FieldOwner, Record<string, FieldDef> | undefined][]) {
+      if (entries) Object.assign(this.extensions[key], cloneFields(entries))
+    }
+    const active: ActiveUpdaterFieldRegistration = { ...input, fields: cloneExtension(input.fields), registeredAt: Date.now() }
+    this.activeExtensions.set(registrationKey, active)
+    return () => {
+      if (this.activeExtensions.get(registrationKey) === active) this.activeExtensions.delete(registrationKey)
+    }
   }
 
   getAuthorsFields() {
@@ -166,6 +236,22 @@ export class ResourceModelService {
       indexes: [['updater', 'updatedAt'], ['platform', 'kind', 'updatedAt']],
     })
   }
+
+  private registrationKey(input: Pick<UpdaterFieldRegistration, 'owner' | 'platform' | 'kind'>) {
+    return `${input.owner}\0${input.platform}\0${input.kind}`
+  }
+}
+
+function cloneExtension(fields: UpdaterFieldExtension): UpdaterFieldExtension {
+  return {
+    ...(fields.authors ? { authors: cloneFields(fields.authors) } : {}),
+    ...(fields.resources ? { resources: cloneFields(fields.resources) } : {}),
+    ...(fields.resourceHistories ? { resourceHistories: cloneFields(fields.resourceHistories) } : {}),
+  }
+}
+
+function cloneRegistration(input: ActiveUpdaterFieldRegistration): ActiveUpdaterFieldRegistration {
+  return { ...input, fields: cloneExtension(input.fields) }
 }
 
 export type CoreModel = Model

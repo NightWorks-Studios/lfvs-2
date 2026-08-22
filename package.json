@@ -33,9 +33,6 @@
     "yakumo-tsc": "^3.0.1"
   },
   "dependencies": {
-    "@lfvs/adapter-bilibili-video": "workspace:*",
-    "@lfvs/core": "workspace:*",
-    "@lfvs/updater-bilibili-video": "workspace:*",
     "@cordisjs/plugin-cli": "^1.1.2",
     "@cordisjs/plugin-cli-cordis": "^1.0.5",
     "@cordisjs/plugin-database": "^4.1.1",
@@ -65,7 +62,13 @@
     "@cordisjs/plugin-timer": "^1.1.2",
     "@cordisjs/plugin-webui": "^0.8.2",
     "@cordisjs/plugin-webui-sso": "^0.2.6",
-    "cordis": "^4.0.0-rc.7"
+    "@lfvs/adapter-bilibili-video": "workspace:*",
+    "@lfvs/core": "workspace:*",
+    "@lfvs/importer-vocabili": "workspace:*",
+    "@lfvs/webui": "workspace:*",
+    "@lfvs/updater-bilibili-video": "workspace:*",
+    "cordis": "^4.0.0-rc.7",
+    "cordis-plugin-cron": "^0.1.0"
   },
   "repository": {
     "type": "git",

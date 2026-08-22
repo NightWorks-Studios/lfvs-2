@@ -34,13 +34,20 @@ export class ResourceStore {
   }
 
   saveResource(resource: NormalizedResource): Promise<Resource> {
-    return this.database.transact((db) => this.saveResourceInTransaction(db, resource))
+    return this.saveResourceWithAuthors(resource)
   }
 
   saveResourceWithAuthors(resource: NormalizedResource, authors: NormalizedAuthor[] = []): Promise<Resource> {
     return this.database.transact(async (db) => {
       const savedAuthors = new Map<string, Author>()
-      for (const author of authors) {
+      const relatedAuthors = new Map<string, NormalizedAuthor>()
+      for (const author of [...resource.relatedAuthors ?? [], ...authors]) {
+        if (author.core.platform !== resource.core.platform) {
+          throw new Error(`author platform does not match resource platform: ${author.core.platform}/${resource.core.platform}`)
+        }
+        relatedAuthors.set(author.core.id, author)
+      }
+      for (const author of relatedAuthors.values()) {
         const saved = await this.saveAuthorInTransaction(db, author, false)
         savedAuthors.set(author.core.id, saved)
       }

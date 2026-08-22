@@ -7,6 +7,7 @@
 - `@lfvs/core`：通用资源模型、适配器注册、字段扩展和统一存储。
 - `@lfvs/adapter-bilibili-video`：通过 `bilibili-rs-gateway` 获取 Bilibili 视频详情。
 - `@lfvs/updater-bilibili-video`：每小时全量刷新本地 Bilibili 视频，默认 4 并发、每批 250 个 BVID。
+- `@lfvs/importer-vocabili`：从 Vocabili 最新榜单导入本地缺失视频，并提供 WebUI 登录与手动导入卡片。
 
 ## 开发
 

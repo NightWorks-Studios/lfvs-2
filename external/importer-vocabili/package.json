@@ -1,5 +1,5 @@
 {
-  "name": "@lfvs/updater-bilibili-video",
+  "name": "@lfvs/importer-vocabili",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,24 +11,38 @@
       "default": "./lib/index.js"
     },
     "./src/*": "./src/*",
+    "./client": "./client/index.ts",
     "./package.json": "./package.json"
   },
   "files": [
-    "lib"
+    "lib",
+    "dist"
   ],
   "license": "MIT",
   "cordis": {
+    "public": [
+      "dist"
+    ],
+    "description": {
+      "en": "Import missing Bilibili videos from Vocabili rankings",
+      "zh": "从 Vocabili 排行榜导入缺失的 Bilibili 视频"
+    },
     "service": {
       "implements": [
-        "bilibiliVideoUpdater"
+        "vocabiliImporter"
       ],
       "required": [
         "mediaSync",
-        "cron"
+        "http",
+        "cron",
+        "webui"
       ]
     }
   },
   "peerDependencies": {
+    "@cordisjs/client": "^0.8.2",
+    "@cordisjs/plugin-http": "^1.5.1",
+    "@cordisjs/plugin-webui": "^0.8.2",
     "@lfvs/core": "^0.1.0",
     "cordis": "^4.0.0-rc.7",
     "cordis-plugin-cron": "^0.1.0"

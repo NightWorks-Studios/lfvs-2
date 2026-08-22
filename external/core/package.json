@@ -18,7 +18,7 @@
   ],
   "license": "MIT",
   "cordis": {
-    "services": {
+    "service": {
       "implements": [
         "mediaSync"
       ],

@@ -1,5 +1,7 @@
 - id: 312edd83
   name: '@cordisjs/plugin-timer'
+- id: lfvs-cron
+  name: 'cordis-plugin-cron'
 - id: 0a9ec786
   name: '@cordisjs/plugin-http'
 - id: 4cd8d0ee
@@ -32,7 +34,18 @@
     - id: lfvs-updater-bilibili-video
       name: '@lfvs/updater-bilibili-video'
       config:
-        intervalMs: 3600000
+        cron: '0 * * * *'
+        batchSize: 250
+        concurrency: 4
+        runImmediately: true
+    - id: lfvs-importer-vocabili
+      name: '@lfvs/importer-vocabili'
+      config:
+        apiBase: https://api.vocabili.top
+        boardName: vocaloid-daily
+        proxyAgent: ''
+        cron: '0 * * * *'
+        pageSize: 20
         batchSize: 250
         concurrency: 4
         runImmediately: true
@@ -69,6 +82,8 @@
       name: '@cordisjs/plugin-webui'
     - id: f64a9366
       name: '@cordisjs/plugin-database-webui'
+    - id: lfvs-webui
+      name: '@lfvs/webui'
     - id: 03ebc689
       name: '@cordisjs/plugin-http-webui'
     - id: 8a9b6184

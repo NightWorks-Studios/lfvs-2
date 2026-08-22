@@ -3,6 +3,7 @@ dist
 /cache
 /data
 /temp
+/tmp
 
 .env.local
 app.yml

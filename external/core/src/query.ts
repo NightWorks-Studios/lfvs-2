@@ -25,6 +25,22 @@ export class SyncQueryService {
     }))
   }
 
+  async listExistingResourceIds(input: {
+    platform: string
+    kind: string
+    ids: string[]
+  }): Promise<string[]> {
+    if (!input.ids.length) return []
+    const rows = await this.database.get('resources', {
+      platform: input.platform,
+      kind: input.kind,
+      id: input.ids,
+    }, {
+      fields: ['id'],
+    } as any)
+    return rows.map((row) => row.id)
+  }
+
   async listAuthorsForSync(input: {
     platform: string
     limit: number

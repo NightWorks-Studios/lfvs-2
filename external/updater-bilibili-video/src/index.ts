@@ -1,28 +1,29 @@
 import { Service, type Context } from 'cordis'
-import type { Database } from '@cordisjs/plugin-database'
-import type { TimerService } from '@cordisjs/plugin-timer'
+import type { Cron } from 'cordis-plugin-cron'
 import z from 'schemastery'
 import type { MediaSync } from '@lfvs/core'
 
 export interface Config {
-  intervalMs?: number
+  cron?: string
   batchSize?: number
   concurrency?: number
   runImmediately?: boolean
 }
 
 export const Config = z.object({
-  intervalMs: z.natural().default(60 * 60 * 1000).role('ms'),
-  batchSize: z.natural().default(250),
-  concurrency: z.natural().default(4),
-  runImmediately: z.boolean().default(true),
+  cron: z.string().default('0 * * * *').description('视频全量更新的 CRON 表达式；默认每小时整点执行一次。'),
+  batchSize: z.natural().default(250).description('每次调用适配器时提交的 BVID 数量；不会超过适配器声明的最大批量。'),
+  concurrency: z.natural().default(4).description('同时执行的适配器批量请求数量。'),
+  runImmediately: z.boolean().default(true).description('插件启动后是否立即执行一次全量更新，而不等待首次 CRON 触发。'),
 })
 
 const DEFAULT_CONFIG = {
-  intervalMs: 60 * 60 * 1000,
+  cron: '0 * * * *',
   batchSize: 250,
   concurrency: 4,
 } as const
+
+const UPDATER_ID = 'updater-bilibili-video'
 
 const fields = {
   resources: {
@@ -44,25 +45,39 @@ function positiveInteger(value: number | undefined, fallback: number, name: stri
 }
 
 export class BilibiliVideoUpdater extends Service {
-  private readonly intervalMs: number
+  private readonly cronExpression: string
   private readonly batchSize: number
   private readonly concurrency: number
   private readonly runImmediately: boolean
-  private running = false
 
   constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'bilibiliVideoUpdater')
-    this.intervalMs = positiveInteger(config.intervalMs, DEFAULT_CONFIG.intervalMs, 'intervalMs')
+    this.cronExpression = config.cron?.trim() || DEFAULT_CONFIG.cron
     this.batchSize = positiveInteger(config.batchSize, DEFAULT_CONFIG.batchSize, 'batchSize')
     this.concurrency = positiveInteger(config.concurrency, DEFAULT_CONFIG.concurrency, 'concurrency')
     this.runImmediately = config.runImmediately ?? true
   }
 
   async [Service.init]() {
-    await this.ctx.mediaSync.registerUpdaterFields('updater-bilibili-video', fields)
-    await (this.ctx.database as Database).prepared()
-    this.ctx.interval(() => void this.trigger(), this.intervalMs)
-    if (this.runImmediately) void this.trigger()
+    await this.ctx.effect(() => this.ctx.mediaSync.registerUpdaterFields({
+      owner: UPDATER_ID,
+      platform: 'bilibili',
+      kind: 'video',
+      fields,
+    }), 'Bilibili video updater fields')
+    this.ctx.effect(() => this.ctx.mediaSync.registerUpdater({
+      id: UPDATER_ID,
+      label: 'Bilibili 视频更新器',
+      platform: 'bilibili',
+      kind: 'video',
+      cron: this.cronExpression,
+      manualTrigger: true,
+      run: () => this.execute(),
+    }), 'Bilibili video updater')
+    this.ctx.cron(this.cronExpression, async () => {
+      await this.ctx.mediaSync.runUpdater(UPDATER_ID, 'schedule')
+    }, { protect: true })
+    if (this.runImmediately) void this.ctx.mediaSync.runUpdater(UPDATER_ID, 'startup').catch(() => {})
   }
 
   async runOnce() {
@@ -84,32 +99,49 @@ export class BilibiliVideoUpdater extends Service {
     }
 
     let nextBatch = 0
+    let updated = 0
+    const logger = this.ctx.logger('updater-bilibili-video')
     const worker = async () => {
       while (nextBatch < batches.length) {
-        const batch = batches[nextBatch++]
+        const batchIndex = nextBatch++
+        const batch = batches[batchIndex]
         const resources = await adapter.getResources!({ ids: batch })
+        let batchUpdated = 0
         for (const resource of resources) {
           await this.ctx.mediaSync.resourceStore.saveResource(resource)
+          updated++
+          batchUpdated++
         }
+        logger.info(
+          'Bilibili 视频更新批次 %d/%d 完成：请求 %d 个，写入 %d 个，累计写入 %d 个',
+          batchIndex + 1,
+          batches.length,
+          batch.length,
+          batchUpdated,
+          updated,
+        )
       }
     }
     await Promise.all(Array.from({ length: Math.min(this.concurrency, Math.max(batches.length, 1)) }, worker))
+    return { targets: targets.length, batches: batches.length, updated }
   }
 
-  private async trigger() {
-    if (this.running) return
-    this.running = true
+  private async execute() {
+    const logger = this.ctx.logger('updater-bilibili-video')
+    const startedAt = Date.now()
+    logger.info('开始更新 Bilibili 视频')
     try {
-      await this.runOnce()
+      const result = await this.runOnce()
+      logger.info('Bilibili 视频更新完成：目标 %d 个，批次 %d 个，写入 %d 个，耗时 %d ms', result.targets, result.batches, result.updated, Date.now() - startedAt)
+      return result
     } catch (error) {
-      this.ctx.logger('updater-bilibili-video').error(error)
-    } finally {
-      this.running = false
+      logger.error(error)
+      throw error
     }
   }
 }
 
-export const inject = ['mediaSync', 'database', 'timer']
+export const inject = ['mediaSync', 'cron']
 
 export function apply(ctx: Context, config: Config) {
   const updater = new BilibiliVideoUpdater(ctx, config)

@@ -651,6 +651,7 @@ interface NormalizedResource {
     shareCount?: number | null
     favoriteCount?: number | null
   }
+  relatedAuthors?: NormalizedAuthor[]
   extension?: {
     resources?: Record<string, unknown>
     resourceHistories?: Record<string, unknown>
@@ -662,6 +663,7 @@ interface NormalizedResource {
 
 - 作者和资源的 `id` 都是平台业务 id。
 - `authors` 中的 `id` 在标准化阶段仍是平台作者 id，由 `ResourceStore` 解析成 `authorPk`。
+- `relatedAuthors` 用于携带资源详情接口同时返回的作者基础信息，`ResourceStore` 会与资源在同一事务中更新。
 - `extension` 只是中间态，不代表数据库一定使用 JSON 存储。
 
 ### 10.3 字段缺失与完整度语义
@@ -672,6 +674,7 @@ interface NormalizedResource {
 - `completeness = 'partial'` 表示当前结果只覆盖部分字段，`ResourceStore` 只更新显式提供的字段。
 - `completeness = 'full'` 表示当前结果是该适配器在本轮可提供的完整快照，但字段清空仍必须显式传 `null`，不能依赖字段缺失来推断删除。
 - `authors === undefined` 表示本次没有拿到作者关系，不得修改既有 `resource_authors`。
+- `relatedAuthors === undefined` 表示本次没有拿到作者详情，不得覆盖已有作者基础信息。
 - `authorsMode = 'unknown'` 表示即使返回了部分作者引用，也不能据此删除旧关系。
 - `authorsMode = 'snapshot'` 表示 `authors` 是该资源当前作者关系的完整快照，此时允许以该集合为准同步 `resource_authors`，包括删除已失效关系。
 

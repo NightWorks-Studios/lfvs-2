@@ -1,5 +1,5 @@
 {
-  "name": "@lfvs/adapter-bilibili-video",
+  "name": "@lfvs/webui",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,30 +11,39 @@
       "default": "./lib/index.js"
     },
     "./src/*": "./src/*",
+    "./client": "./client/index.ts",
     "./package.json": "./package.json"
   },
   "files": [
-    "lib"
+    "lib",
+    "dist"
   ],
   "license": "MIT",
   "cordis": {
+    "public": [
+      "dist"
+    ],
     "description": {
-      "en": "Fetch Bilibili video details through bilibili-rs-gateway",
-      "zh": "通过 bilibili-rs-gateway 获取 Bilibili 视频详情"
+      "en": "LFVS resource dashboard and runtime inspector",
+      "zh": "LFVS 资源检索、历史趋势与运行状态"
     },
     "service": {
       "required": [
         "mediaSync",
-        "http"
+        "database",
+        "webui"
       ]
     }
   },
   "peerDependencies": {
-    "@cordisjs/plugin-http": "^1.5.1",
+    "@cordisjs/client": "^0.8.2",
+    "@cordisjs/plugin-database": "^4.1.1",
+    "@cordisjs/plugin-webui": "^0.8.2",
     "@lfvs/core": "^0.1.0",
     "cordis": "^4.0.0-rc.7"
   },
   "dependencies": {
-    "schemastery": "^3.18.0"
+    "@lucide/vue": "^1.33.0",
+    "echarts": "^6.0.0"
   }
 }

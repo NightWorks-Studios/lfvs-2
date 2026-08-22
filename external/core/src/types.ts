@@ -91,6 +91,7 @@ export interface NormalizedResource {
     shareCount?: number | bigint | null
     favoriteCount?: number | bigint | null
   }
+  relatedAuthors?: NormalizedAuthor[]
   extension?: {
     resources?: Record<string, unknown>
     resourceHistories?: Record<string, unknown>

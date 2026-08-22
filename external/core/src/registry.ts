@@ -1,11 +1,23 @@
 import type { ResourceAdapter } from './types.js'
 
+export interface AdapterRuntimeInfo {
+  platform: string
+  kind: string
+  capabilities: ResourceAdapter['capabilities']
+  registeredAt: number
+}
+
+interface AdapterEntry {
+  adapter: ResourceAdapter
+  registeredAt: number
+}
+
 function assertNonEmpty(value: string, name: string) {
   if (!value || !value.trim()) throw new TypeError(`${name} must not be empty`)
 }
 
 export class AdapterRegistry {
-  private readonly adapters = new Map<string, ResourceAdapter>()
+  private readonly adapters = new Map<string, AdapterEntry>()
 
   register(adapter: ResourceAdapter) {
     assertNonEmpty(adapter.platform, 'adapter.platform')
@@ -19,7 +31,7 @@ export class AdapterRegistry {
     }
 
     this.assertCapabilities(adapter)
-    this.adapters.set(key, adapter)
+    this.adapters.set(key, { adapter, registeredAt: Date.now() })
     return () => this.unregister(adapter.platform, adapter.kind)
   }
 
@@ -28,11 +40,22 @@ export class AdapterRegistry {
   }
 
   get(platform: string, kind: string) {
-    return this.adapters.get(this.key(platform, kind))
+    return this.adapters.get(this.key(platform, kind))?.adapter
   }
 
   list() {
+    return [...this.adapters.values()].map(({ adapter }) => adapter)
+  }
+
+  describe(): AdapterRuntimeInfo[] {
     return [...this.adapters.values()]
+      .map(({ adapter, registeredAt }) => ({
+        platform: adapter.platform,
+        kind: adapter.kind,
+        capabilities: cloneCapabilities(adapter.capabilities),
+        registeredAt,
+      }))
+      .sort((a, b) => a.platform.localeCompare(b.platform) || a.kind.localeCompare(b.kind))
   }
 
   private key(platform: string, kind: string) {
@@ -50,5 +73,13 @@ export class AdapterRegistry {
     if (!!capabilities.listAuthorResources !== !!adapter.listAuthorResources) {
       throw new Error(`listAuthorResources capability does not match adapter implementation for ${adapter.platform}/${adapter.kind}`)
     }
+  }
+}
+
+function cloneCapabilities(capabilities: ResourceAdapter['capabilities']): ResourceAdapter['capabilities'] {
+  return {
+    ...(capabilities.resourceBatch ? { resourceBatch: { ...capabilities.resourceBatch } } : {}),
+    ...(capabilities.authorBatch ? { authorBatch: { ...capabilities.authorBatch } } : {}),
+    ...(capabilities.listAuthorResources !== undefined ? { listAuthorResources: capabilities.listAuthorResources } : {}),
   }
 }

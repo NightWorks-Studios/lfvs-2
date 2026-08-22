@@ -11,8 +11,8 @@ export interface Config {
 
 export const Config = z.object({
   endpoint: z.string().required().description('bilibili-rs-gateway 批量视频详情接口：https://github.com/Roberta001/bilibili-rs-gateway'),
-  maxBatchSize: z.natural().default(250),
-  requestTimeoutMs: z.natural().default(30000).role('ms'),
+  maxBatchSize: z.natural().default(250).description('单次请求最多提交的 BVID 数量；超过时适配器会自动切片。'),
+  requestTimeoutMs: z.natural().default(30000).role('ms').description('单次网关请求的超时时间。'),
 })
 
 export interface BilibiliHttpClient {
@@ -26,6 +26,11 @@ interface ViewData {
   cover?: string | null
   desc?: string | null
   author_mid?: number | string | null
+  up?: {
+    mid?: number | string | null
+    name?: string | null
+    face?: string | null
+  } | null
   duration?: number | null
   pubdate?: number | null
   page_count?: number | null
@@ -83,6 +88,10 @@ function normalize(data: ViewData, now: number): NormalizedResource | null {
   if (typeof data.bvid !== 'string' || !data.bvid || typeof data.title !== 'string') return null
 
   const authorId = data.author_mid === null || data.author_mid === undefined ? undefined : String(data.author_mid)
+  const uploaderId = data.up?.mid === null || data.up?.mid === undefined ? authorId : String(data.up.mid)
+  if (authorId && uploaderId && authorId !== uploaderId) {
+    throw new Error(`Bilibili uploader MID mismatch: ${authorId} != ${uploaderId}`)
+  }
   const publishedAt = asFiniteNumber(data.pubdate)
   const stats = data.stat ?? {}
   const pageCount = asNullableNumber(data.page_count) ?? (data.pages ? data.pages.length : undefined)
@@ -101,8 +110,8 @@ function normalize(data: ViewData, now: number): NormalizedResource | null {
       description: data.desc ?? null,
       ...(publishedAt === undefined ? {} : { publishTime: publishedAt * 1000 }),
       duration: asNullableNumber(data.duration) ?? null,
-      ...(authorId ? {
-        authors: [{ id: authorId, isPrimary: true, sortOrder: 0, role: 'uploader' }],
+      ...(uploaderId ? {
+        authors: [{ id: uploaderId, isPrimary: true, sortOrder: 0, role: 'uploader' }],
         authorsMode: 'snapshot' as const,
       } : {}),
       fetchedAt: now,
@@ -116,6 +125,18 @@ function normalize(data: ViewData, now: number): NormalizedResource | null {
       shareCount: asNullableNumber(stats.share) ?? null,
       favoriteCount: asNullableNumber(stats.fav) ?? null,
     },
+    ...(uploaderId && data.up ? {
+      relatedAuthors: [{
+        core: {
+          platform: 'bilibili',
+          id: uploaderId,
+          ...(data.up.name !== undefined ? { name: data.up.name } : {}),
+          ...(data.up.face !== undefined ? { avatarUrl: data.up.face } : {}),
+          fetchedAt: now,
+          completeness: 'partial',
+        },
+      }],
+    } : {}),
     extension: {
       resources: {
         bilibiliAid: asNullableNumber(data.aid) ?? null,
