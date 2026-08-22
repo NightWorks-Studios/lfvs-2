@@ -28,26 +28,41 @@
       name: '@lfvs/adapter-bilibili-video'
       config:
         # 对接 bilibili-rs-gateway: https://github.com/Roberta001/bilibili-rs-gateway
+        # 批量视频信息接口地址。
         endpoint: http://49.232.90.239:3011/api/view/batch
+        # 单次请求允许传入的最大 BVID 数。
         maxBatchSize: 250
+        # 上游请求超时时间（毫秒）。
         requestTimeoutMs: 30000
     - id: lfvs-updater-bilibili-video
       name: '@lfvs/updater-bilibili-video'
       config:
+        # 更新任务的 CRON 表达式，默认每小时整点执行。
         cron: '0 * * * *'
+        # 每批交给适配器更新的资源数。
         batchSize: 250
+        # 同时向适配器发起的批次数。
         concurrency: 4
-        runImmediately: true
+        # 启动时不主动更新，仅等待 CRON 触发。
+        runImmediately: false
     - id: lfvs-importer-vocabili
       name: '@lfvs/importer-vocabili'
       config:
+        # Vocabili API 的基础地址。
         apiBase: https://api.vocabili.top
+        # 要导入的 Vocabili 榜单名称。
         boardName: vocaloid-daily
+        # 可选的 HTTP 代理地址，留空则直接访问。
         proxyAgent: ''
+        # 导入任务的 CRON 表达式。
         cron: '0 * * * *'
+        # 每次从 Vocabili 获取的条目数。
         pageSize: 20
+        # 每次请求视频适配器的 BVID 数。
         batchSize: 250
+        # 同时向视频适配器发起的批次数。
         concurrency: 4
+        # 启动后是否立刻导入一次。
         runImmediately: true
     - id: 0cb55d6c
       name: '@cordisjs/plugin-database-mysql'
