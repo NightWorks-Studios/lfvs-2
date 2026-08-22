@@ -29,7 +29,7 @@
       config:
         # 对接 bilibili-rs-gateway: https://github.com/Roberta001/bilibili-rs-gateway
         # 批量视频信息接口地址。
-        endpoint: http://49.232.90.239:3011/api/view/batch
+        endpoint: http://127.0.0.1:3011/api/view/batch
         # 单次请求允许传入的最大 BVID 数。
         maxBatchSize: 250
         # 上游请求超时时间（毫秒）。
