@@ -24,6 +24,69 @@
         path: ./data/cordis.db
     - id: lfvs-core
       name: '@lfvs/core'
+    - id: lfvs-http-pow
+      name: '@lfvs/http-pow'
+      config:
+        # 必须与 API 的 basePath 一致；使用 server 前置中间件，不依赖插件加载顺序。
+        basePath: /api/v1
+        # 需要 PoW 验证的相对路径。路径语法与 Cordis server 路由一致。
+        lightPaths:
+          - /targets
+          - /targets/:platform/:kind/schema
+        normalPaths:
+          - /targets/:platform/:kind/resources
+          - /targets/:platform/:kind/resources/batch
+          - /targets/:platform/:kind/resources/:id/history
+          - /targets/:platform/:kind/resources/:id
+          - /targets/:platform/:kind/authors
+          - /targets/:platform/:kind/authors/:id/resources
+          - /targets/:platform/:kind/authors/:id
+        bulkPaths:
+          - /targets/:platform/:kind/resources/snapshot
+        # Challenge 签名密钥。生产环境请设置至少 32 字节的随机值；留空时每次启动随机生成。
+        secret: ''
+        # Challenge 有效时间和允许的时钟偏差。
+        challengeTtlMs: 60000
+        clockSkewMs: 5000
+        # 默认不信任代理头；仅当服务只能经可信反向代理访问时开启。
+        trustProxy: false
+        # Challenge 默认与客户端精确 IP 绑定，也可设为 prefix 或 none。
+        ipBinding: exact
+        ipv4Prefix: 24
+        ipv6Prefix: 56
+        # 三类接口要求的 SHA-256 前导零位数。
+        lightDifficulty: 18
+        normalDifficulty: 20
+        bulkDifficulty: 22
+        # 全量 bulk 接口：单并发、每客户端 5 分钟冷却。
+        bulkConcurrency: 1
+        bulkCooldownMs: 300000
+        bulkClientCacheSize: 10000
+        # Challenge 签发限速：每个客户端每秒恢复额度和最大突发额度。
+        challengeRatePerSecond: 2
+        challengeBurst: 10
+        # 内存防重放、客户端限速缓存上限和清理周期。
+        replayCacheSize: 100000
+        clientCacheSize: 10000
+        cleanupIntervalMs: 30000
+        # 应与 API 的 CORS 来源保持一致。
+        corsOrigins:
+          - '*'
+    - id: lfvs-api
+      name: '@lfvs/api'
+      config:
+        # API 路由前缀。
+        basePath: /api/v1
+        # 列表接口默认返回数量和最大返回数量。
+        defaultLimit: 50
+        maxLimit: 250
+        # 批量资源接口单次允许提交的最大 ID 数量。
+        maxBatchSize: 250
+        # 历史记录接口单次允许返回的最大快照数量。
+        maxHistoryPoints: 5000
+        # 允许跨域访问 API 的来源；生产环境建议改为明确的来源列表。
+        corsOrigins:
+          - '*'
     - id: lfvs-adapter-bilibili-video
       name: '@lfvs/adapter-bilibili-video'
       config:

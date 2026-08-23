@@ -472,9 +472,22 @@
   dependencies:
     schemastery "^3.18.0"
 
+"@lfvs/api@file:D:\\lfvs-2\\external\\api":
+  version "0.1.0"
+  resolved "file:external/api"
+  dependencies:
+    schemastery "^3.18.0"
+
 "@lfvs/core@^0.1.0", "@lfvs/core@file:D:\\lfvs-2\\external\\core":
   version "0.1.0"
   resolved "file:external/core"
+
+"@lfvs/http-pow@file:D:\\lfvs-2\\external\\http-pow":
+  version "0.1.0"
+  resolved "file:external/http-pow"
+  dependencies:
+    path-to-regexp-typed "^8.0.0"
+    schemastery "^3.18.0"
 
 "@lfvs/importer-vocabili@file:D:\\lfvs-2\\external\\importer-vocabili":
   version "0.1.0"
@@ -492,8 +505,8 @@
   version "0.1.0"
   resolved "file:external/webui-lfvs"
   dependencies:
+    "@lucide/vue" "^1.33.0"
     echarts "^6.0.0"
-    lucide-vue-next "^0.468.0"
 
 "@lucide/vue@^1.33.0":
   version "1.33.0"

@@ -5,6 +5,8 @@
 ## 当前插件
 
 - `@lfvs/core`：定义通用数据模型，管理适配器、更新器、扩展字段、同步查询、检查点和统一写入规则。
+- `@lfvs/api`：对外提供按在线 updater 字段契约过滤的只读 REST API。
+- `@lfvs/http-pow`：通过 server 前置中间件匹配配置路径，执行无状态 Challenge 校验和内存防重放保护。
 - `@lfvs/adapter-bilibili-video`：通过 [bilibili-rs-gateway](https://github.com/Roberta001/bilibili-rs-gateway) 获取并标准化 Bilibili 视频详情。
 - `@lfvs/updater-bilibili-video`：由 CRON 定期全量刷新本地 Bilibili 视频，默认 4 并发、每批 250 个 BVID。
 - `@lfvs/importer-vocabili`：从 Vocabili 榜单导入本地缺失的视频，同时补充作者、资源关系和首次历史快照。
@@ -20,9 +22,12 @@ flowchart LR
   Core --> Database["Cordis database<br/>SQLite / PostgreSQL"]
   WebUI["@lfvs/webui"] -->|运行时信息| Core
   WebUI -->|业务数据查询| Database
+  API["@lfvs/api"] -->|在线字段契约| Core
+  API -->|只读业务查询| Database
+  PoW["@lfvs/http-pow"] -->|路径中间件| API
 ```
 
-适配器不操作数据库，只把平台响应转换成 `NormalizedResource` 和 `NormalizedAuthor`。更新器负责何时执行、选取哪些资源以及如何分批调用适配器，最终将标准化结果交给 core 写入。core 统一维护当前资源、作者、作者关系、历史快照和同步检查点。WebUI 从 core 读取在线适配器、更新器和有效扩展字段等运行时信息，业务数据查询则直接使用 Cordis database 服务。
+适配器不操作数据库，只把平台响应转换成 `NormalizedResource` 和 `NormalizedAuthor`。更新器负责何时执行、选取哪些资源以及如何分批调用适配器，最终将标准化结果交给 core 写入。core 统一维护当前资源、作者、作者关系、历史快照和同步检查点。WebUI 和 API 从 core 读取在线适配器、更新器和有效扩展字段等运行时信息，业务数据查询则直接使用 Cordis database 服务。
 
 系统使用五张表：`authors`、`resources`、`resource_authors`、`resource_histories` 和 `checkpoints`。其中当前信息与历史快照分开存储，资源和作者通过关系表关联。
 
@@ -137,5 +142,9 @@ npm run dev
 ```
 
 默认服务地址为 `http://127.0.0.1:3140`。运行前请在 `app.yml` 中确认 Bilibili gateway 的 `endpoint` 配置。
+
+只读 API 默认位于 `http://127.0.0.1:3140/api/v1`，OpenAPI 文档位于 `/api/v1/openapi.json`。
+
+`@lfvs/http-pow` 通过 `ctx.server.use()` 在进入路由前匹配 `lightPaths`、`normalPaths` 和 `bulkPaths`，不需要 API 插件注入该服务。首次请求受保护路径会返回 `428` 和 challenge；客户端找到使 `SHA-256(challenge + "." + lowercaseHexNonce)` 满足前导零位数的 nonce 后，将 challenge 和 nonce 分别放入 `X-LFVS-PoW-Challenge`、`X-LFVS-PoW-Nonce` 重试。默认难度为 `18 / 20 / 22`，分别对应轻量、常规和全量接口；全量接口额外限制为单并发和每客户端 5 分钟冷却。生产环境可按真实客户端的求解速度调整。
 
 所有插件位于 `external/*`，依赖统一安装在 monorepo 根目录的 `node_modules` 中。完整数据模型和设计约束参见 [`docs/media-sync-architecture.md`](docs/media-sync-architecture.md)。
