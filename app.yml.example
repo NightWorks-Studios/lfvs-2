@@ -125,6 +125,8 @@
         requestTimeoutMs: 30000
         # 遇到 429 或 5xx 时换用其他 Key 的最大重试次数。
         maxTransientRetries: 3
+        # Key 遇到临时限流时的最短冷却时间（毫秒）；上游的 Retry-After 优先。
+        transientCooldownMs: 60000
     - id: lfvs-updater-youtube-video
       name: '@lfvs/updater-youtube-video'
       config:

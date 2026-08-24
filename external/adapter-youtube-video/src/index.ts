@@ -18,9 +18,11 @@ export interface Config {
   maxBatchSize?: number
   requestTimeoutMs?: number
   maxTransientRetries?: number
+  transientCooldownMs?: number
 }
 
 export const Config = z.object({
+  transientCooldownMs: z.natural().default(60000).role('ms').description('Key 遇到临时限流时的最短冷却时间；若上游提供 Retry-After 则优先采用。'),
   endpoint: z.string().default('https://www.googleapis.com/youtube/v3').description('YouTube Data API v3 基础地址。'),
   proxyAgent: z.string().default('').description('可选的 HTTP 或 SOCKS 代理地址；SOCKS 代理需要加载 @cordisjs/plugin-http-socks。'),
   keyFile: z.string().default('./data/youtube-api-keys.txt').description('每行一个 YouTube Data API Key 的本地文件路径；默认位于 data 目录且不会被提交到 Git。'),
@@ -163,25 +165,55 @@ function nextPacificMidnight(now: number) {
   return wallTime - pacificOffsetMinutes(wallTime) * 60_000
 }
 
-function responseStatus(error: any) {
-  return Number(error?.response?.status)
+interface ApiFailure {
+  status: number
+  reason: string
+  message: string
+  retryAfterMs?: number
 }
 
-function responseReason(error: any) {
-  const data = error?.response?.data
-  return data?.error?.errors?.[0]?.reason ?? data?.error?.status ?? ''
+function retryAfterMs(headers: unknown) {
+  const value = (headers as Headers | undefined)?.get?.('retry-after')?.trim()
+  if (!value) return undefined
+  if (/^\d+$/.test(value)) return Number(value) * 1000
+  const date = Date.parse(value)
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : undefined
 }
 
-function isKeyFailure(status: number, reason: string) {
-  return status === 403 && [
+async function parseApiFailure(error: any): Promise<ApiFailure> {
+  const response = error?.response
+  const status = Number(response?.status ?? error?.status ?? 0)
+  let data = response?.data
+  if (!data && typeof response?.clone === 'function') {
+    data = await response.clone().json().catch(async () => {
+      const text = await response.clone().text().catch(() => '')
+      return text ? { error: { message: text } } : undefined
+    })
+  }
+  const apiError = data?.error ?? data ?? {}
+  const reason = apiError?.errors?.[0]?.reason ?? apiError?.status ?? ''
+  const message = apiError?.errors?.[0]?.message ?? apiError?.message ?? ''
+  return { status, reason: String(reason), message: String(message), retryAfterMs: retryAfterMs(response?.headers) }
+}
+
+function isDailyKeyFailure(failure: ApiFailure) {
+  return failure.status === 403 && [
     'quotaExceeded',
     'dailyLimitExceeded',
+    'dailyLimitExceededUnreg',
     'accessNotConfigured',
     'keyInvalid',
     'API_KEY_INVALID',
     'ipRefererBlocked',
     'forbidden',
-  ].includes(reason)
+  ].includes(failure.reason)
+}
+
+function isTransientFailure(failure: ApiFailure) {
+  return failure.status === 0
+    || failure.status === 429
+    || failure.status >= 500
+    || ['userRateLimitExceeded', 'rateLimitExceeded'].includes(failure.reason)
 }
 
 function normalizeVideo(video: YouTubeVideo, capturedAt: number): NormalizedResource | null {
@@ -277,6 +309,7 @@ export class YouTubeVideoAdapter implements ResourceAdapter {
   private readonly maxBatchSize: number
   private readonly requestTimeoutMs: number
   private readonly maxTransientRetries: number
+  private readonly transientCooldownMs: number
   private readonly cooldowns = new Map<string, number>()
   private cooldownsLoaded?: Promise<void>
   private resetTimer?: NodeJS.Timeout
@@ -293,6 +326,7 @@ export class YouTubeVideoAdapter implements ResourceAdapter {
     if (this.maxBatchSize > API_MAX_BATCH_SIZE) throw new RangeError(`maxBatchSize must not exceed YouTube API limit ${API_MAX_BATCH_SIZE}`)
     this.requestTimeoutMs = positiveInteger(config.requestTimeoutMs, 30000, 'requestTimeoutMs')
     this.maxTransientRetries = positiveInteger(config.maxTransientRetries, 3, 'maxTransientRetries')
+    this.transientCooldownMs = positiveInteger(config.transientCooldownMs, 60000, 'transientCooldownMs')
     const fileKeys = config.keyFile === '' ? [] : extractKeys(readFileSync(resolve(config.keyFile ?? './data/youtube-api-keys.txt'), 'utf8'))
     this.keys = [...new Set([...fileKeys, ...(config.apiKeys ?? []).flatMap(extractKeys)])]
     if (!this.keys.length) throw new Error('no YouTube Data API keys are configured')
@@ -380,17 +414,21 @@ export class YouTubeVideoAdapter implements ResourceAdapter {
           ...(this.proxyAgent ? { proxyAgent: this.proxyAgent } : {}),
         })
       } catch (error) {
-        const status = responseStatus(error)
-        const reason = responseReason(error)
-        if (isKeyFailure(status, reason)) {
-          await this.cooldownKey(key, reason || 'forbidden')
+        const failure = await parseApiFailure(error)
+        if (isDailyKeyFailure(failure)) {
+          await this.cooldownKey(key, failure.reason || 'forbidden', nextPacificMidnight(Date.now()))
           continue
         }
-        if (status === 429 || status >= 500) {
+        if (isTransientFailure(failure)) {
           transientFailures++
-          if (transientFailures <= this.maxTransientRetries) continue
+          if (transientFailures <= this.maxTransientRetries) {
+            const until = Date.now() + Math.max(this.transientCooldownMs, failure.retryAfterMs ?? 0)
+            await this.cooldownKey(key, failure.reason || `HTTP ${failure.status || 'network error'}`, until)
+            continue
+          }
         }
-        throw new Error(`YouTube Data API request failed: HTTP ${status || 'unknown'}${reason ? ` (${reason})` : ''}`)
+        const details = [failure.reason, failure.message].filter(Boolean).join(': ')
+        throw new Error(`YouTube Data API request failed: HTTP ${failure.status || 'unknown'}${details ? ` (${details})` : ''}`)
       }
     }
     throw new Error('all configured YouTube Data API keys are cooling down or temporarily unavailable')
@@ -442,9 +480,8 @@ export class YouTubeVideoAdapter implements ResourceAdapter {
     }
   }
 
-  private async cooldownKey(key: string, reason: string) {
+  private async cooldownKey(key: string, reason: string, until: number) {
     const digest = keyDigest(key)
-    const until = nextPacificMidnight(Date.now())
     this.cooldowns.set(digest, until)
     await this.ctx.mediaSync.checkpointStore.set({
       updater: CHECKPOINT_UPDATER,
@@ -453,7 +490,7 @@ export class YouTubeVideoAdapter implements ResourceAdapter {
       scopeType: 'apiKey',
       scopeId: digest,
       watermark: until,
-      extra: JSON.stringify({ reason }),
+      extra: JSON.stringify({ reason, until }),
     })
     this.scheduleCooldownReset()
   }
