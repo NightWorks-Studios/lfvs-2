@@ -18,6 +18,11 @@ export class CheckpointStore {
     return this.toCheckpoint(row)
   }
 
+  async list(filter: Partial<CheckpointKey> = {}): Promise<Checkpoint[]> {
+    const rows = await this.database.get('checkpoints', filter)
+    return rows.map((row) => this.toCheckpoint(row))
+  }
+
   async set(input: CheckpointInput): Promise<void> {
     const now = input.updatedAt ?? Date.now()
     const key: CheckpointKey = {
