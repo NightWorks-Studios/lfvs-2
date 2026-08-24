@@ -395,8 +395,12 @@ export class VocaloardYouTubeImporter extends Service {
         ? await response.text()
         : ''
     if (status === 404) return null
+    const detail = html.replace(/\s+/g, ' ').trim()
+    if (status === 500 && !detail) {
+      this.ctx.logger('importer-vocaloard-youtube').warn('Skipping unavailable Vocaloard page: %s', url)
+      return null
+    }
     if (status < 200 || status >= 300) {
-      const detail = html.replace(/\s+/g, ' ').trim()
       const summary = detail.slice(0, 500)
       this.ctx.logger('importer-vocaloard-youtube').error(
         'Vocaloard request failed: %s %s\nresponse: %s',
