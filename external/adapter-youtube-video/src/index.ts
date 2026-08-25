@@ -448,7 +448,13 @@ export class YouTubeVideoAdapter implements ResourceAdapter {
         if (checkpoint.watermark && checkpoint.watermark > now) {
           this.cooldowns.set(checkpoint.scopeId, checkpoint.watermark)
         } else {
-          await this.ctx.mediaSync.checkpointStore.remove(checkpoint)
+          await this.ctx.mediaSync.checkpointStore.remove({
+            updater: checkpoint.updater,
+            platform: checkpoint.platform,
+            kind: checkpoint.kind,
+            scopeType: checkpoint.scopeType,
+            scopeId: checkpoint.scopeId,
+          })
         }
       }
       this.scheduleCooldownReset()
