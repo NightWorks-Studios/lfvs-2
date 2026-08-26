@@ -25,6 +25,13 @@ const DEFAULT_CONFIG = {
 } as const
 
 const UPDATER_ID = 'updater-youtube-video'
+const CHECKPOINT_KEY = {
+  updater: UPDATER_ID,
+  platform: 'youtube',
+  kind: 'video',
+  scopeType: 'fullSync',
+  scopeId: 'resources',
+} as const
 
 const fields = {
   authors: {
@@ -83,7 +90,8 @@ export class YouTubeVideoUpdater extends Service {
     this.ctx.cron(this.cronExpression, async () => {
       await this.ctx.mediaSync.runUpdater(UPDATER_ID, 'schedule')
     }, { protect: true })
-    if (this.runImmediately) void this.ctx.mediaSync.runUpdater(UPDATER_ID, 'startup').catch(() => {})
+    const checkpoint = await this.ctx.mediaSync.checkpointStore.get(CHECKPOINT_KEY)
+    if (checkpoint || this.runImmediately) void this.ctx.mediaSync.runUpdater(UPDATER_ID, 'startup').catch(() => {})
   }
 
   async runOnce() {
@@ -92,27 +100,32 @@ export class YouTubeVideoUpdater extends Service {
     if (!adapter.getResources || !adapter.capabilities.resourceBatch?.supported) {
       throw new Error('YouTube video adapter does not support resource batches')
     }
+    const checkpoint = await this.ctx.mediaSync.checkpointStore.get(CHECKPOINT_KEY)
+    const afterPk = checkpoint?.page ?? 0
     const targets = await this.ctx.mediaSync.syncQuery.listResourcesForSync({
       platform: 'youtube',
       kind: 'video',
+      afterPk,
     })
     const maxBatchSize = adapter.capabilities.resourceBatch.maxBatchSize
     const batchSize = Math.min(this.batchSize, maxBatchSize ?? this.batchSize)
-    const batches: string[][] = []
+    const batches: typeof targets[] = []
     for (let offset = 0; offset < targets.length; offset += batchSize) {
-      batches.push(targets.slice(offset, offset + batchSize).map((target) => target.id))
+      batches.push(targets.slice(offset, offset + batchSize))
     }
 
-    let nextBatch = 0
     let updated = 0
     let authorsUpdated = 0
     let missing = 0
     const logger = this.ctx.logger('updater-youtube-video')
-    const worker = async () => {
-      while (nextBatch < batches.length) {
-        const batchIndex = nextBatch++
-        const batch = batches[batchIndex]
-        const resources = await adapter.getResources!({ ids: batch })
+    if (checkpoint) logger.info('恢复 YouTube 视频更新：从资源 pk %d 后继续，共剩余 %d 个目标', afterPk, targets.length)
+    for (let offset = 0; offset < batches.length; offset += this.concurrency) {
+      const window = batches.slice(offset, offset + this.concurrency)
+      const results = await Promise.all(window.map((batch) => adapter.getResources!({ ids: batch.map((target) => target.id) })))
+      for (let index = 0; index < window.length; index++) {
+        const batchIndex = offset + index
+        const batch = window[index]
+        const resources = results[index]
         for (const resource of resources) {
           await this.ctx.mediaSync.resourceStore.saveResource(resource)
           updated++
@@ -139,9 +152,13 @@ export class YouTubeVideoUpdater extends Service {
           batchMissing,
           updated,
         )
+        await this.ctx.mediaSync.checkpointStore.set({
+          ...CHECKPOINT_KEY,
+          page: batch.at(-1)!.pk,
+        })
       }
     }
-    await Promise.all(Array.from({ length: Math.min(this.concurrency, Math.max(batches.length, 1)) }, worker))
+    await this.ctx.mediaSync.checkpointStore.remove(CHECKPOINT_KEY)
     return { targets: targets.length, batches: batches.length, updated, authorsUpdated, missing }
   }
 

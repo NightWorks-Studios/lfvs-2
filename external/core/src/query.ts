@@ -8,15 +8,18 @@ export class SyncQueryService {
     platform: string
     kind: string
     limit?: number
+    afterPk?: number
   }): Promise<SyncResourceTarget[]> {
     const cursor: Record<string, unknown> = {
       fields: ['pk', 'id', 'lastSyncedAt'],
-      sort: { lastSyncedAt: 'asc' },
+      // A primary-key cursor is stable while an update changes lastSyncedAt.
+      sort: { pk: 'asc' },
     }
     if (input.limit !== undefined) cursor.limit = input.limit
     const rows = await this.database.get('resources', {
       platform: input.platform,
       kind: input.kind,
+      ...(input.afterPk === undefined ? {} : { pk: { $gt: input.afterPk } }),
     }, cursor as any)
     return rows.map((row) => ({
       pk: row.pk,
